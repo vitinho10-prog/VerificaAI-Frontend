@@ -139,18 +139,25 @@ def _mapear_label_para_risk_level(label: str) -> str:
 
 
 def verificar_link_com_safe_browsing(link: str) -> str:
-    """Verifica URL via Google Safe Browsing API."""
-    url_api = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
-    api_key = settings.SAFE_BROWSING_API_KEY
-    payload = {"client": {"clientId": "spamapiproject", "clientVersion": "1.0.0"},"threatInfo": {"threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],"platformTypes": ["ANY_PLATFORM"],"threatEntryTypes": ["URL"],"threatEntries": [{"url": link}]}}
-    params = {'key': api_key}
+    """Verifica URL via Google Safe Browsing API v5."""
+    api_key = getattr(settings, 'SAFE_BROWSING_API_KEY', '')
+    if not api_key:
+        return "INDETERMINADO (Safe Browsing API Key ausente)"
+
+    url_api = "https://safebrowsing.googleapis.com/v5alpha1/urls:search"
+    params = {
+        'urls': link,
+        'key': api_key
+    }
     try:
-        response = requests.post(url_api, params=params, json=payload)
+        response = requests.get(url_api, params=params, timeout=5)
         response.raise_for_status()
         data = response.json()
-        if 'matches' in data:
-            threat_type = data['matches'][0]['threatType']
-            return f"PERIGOSO (Threat detected: {threat_type})"
+        if 'threats' in data and data['threats']:
+            threat_entry = data['threats'][0]
+            threat_types = threat_entry.get('threatTypes', [])
+            types_str = ", ".join(threat_types) if threat_types else "MALICIOUS"
+            return f"PERIGOSO (Threat detected: {types_str})"
         return "SEGURO"
     except requests.exceptions.RequestException:
         return "INDETERMINADO (Verification failed)"

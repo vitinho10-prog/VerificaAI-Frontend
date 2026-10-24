@@ -3,6 +3,8 @@ import time
 import os
 import csv
 import json
+import re
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, f1_score
@@ -15,12 +17,38 @@ from ollama import Client
 load_dotenv()
 
 OLLAMA_API_KEY = os.getenv("OLLAMA_CLOUD_API_KEY") or os.getenv("OLLAMA_API_KEY")
+SAFE_BROWSING_API_KEY = os.getenv("SAFE_BROWSING_API_KEY", "")
 
 if not OLLAMA_API_KEY:
     raise RuntimeError("API Key não encontrada no arquivo .env")
 
 MODELO_OLLAMA = "deepseek-v3.2:cloud" 
 ARQUIVO_RELATORIO_FINAL = "relatorio_metrics_ollama_cloud_deepseek-v3.2.txt"
+
+
+def verificar_link_com_safe_browsing(link: str) -> str:
+    """Verifica URL via Google Safe Browsing API v5."""
+    if not SAFE_BROWSING_API_KEY:
+        return "INDETERMINADO (Safe Browsing API Key ausente)"
+
+    url_api = "https://safebrowsing.googleapis.com/v5alpha1/urls:search"
+    params = {
+        'urls': link,
+        'key': SAFE_BROWSING_API_KEY
+    }
+    try:
+        response = requests.get(url_api, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        if 'threats' in data and data['threats']:
+            threat_entry = data['threats'][0]
+            threat_types = threat_entry.get('threatTypes', [])
+            types_str = ", ".join(threat_types) if threat_types else "MALICIOUS"
+            return f"PERIGOSO (Threat detected: {types_str})"
+        return "SEGURO"
+    except requests.exceptions.RequestException:
+        return "INDETERMINADO (Verification failed)"
+
 
 # Conexão via Client conforme funcionou anteriormente
 client = Client(
@@ -160,10 +188,16 @@ def process_dataset_ollama(config):
             texto = str(row[text_column])
             rotulo_verdadeiro = str(row[label_column]).lower()
             
+            # Análise de links via Safe Browsing v5
+            links_encontrados = re.findall(r'(https?://\S+)', texto)
+            resultado_safe_browsing = "Nenhum link na mensagem."
+            if links_encontrados:
+                resultado_safe_browsing = verificar_link_com_safe_browsing(links_encontrados[0])
+
             prompt_final = f"""
             <CONTEXT>
             <USER_MESSAGE>{texto}</USER_MESSAGE>
-            <TECHNICAL_LINK_ANALYSIS_RESULT>SEGURO</TECHNICAL_LINK_ANALYSIS_RESULT>
+            <TECHNICAL_LINK_ANALYSIS_RESULT>{resultado_safe_browsing}</TECHNICAL_LINK_ANALYSIS_RESULT>
             <HISTORICAL_SIMILAR_EXAMPLES>Nenhum exemplo histórico fornecido para este teste.</HISTORICAL_SIMILAR_EXAMPLES>
             </CONTEXT>
             """
