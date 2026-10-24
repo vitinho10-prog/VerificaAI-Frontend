@@ -40,23 +40,33 @@ PROMPT_SISTEMA_BASE = """
 
 DATASETS_PARA_TESTAR = [
     {
-        "nome": "SMS Dataset",
-        "arquivo_entrada": "sms_dataset.csv", 
-        "arquivo_saida": "sms_ollama_output.csv", 
-        "coluna_texto": "Message",
-        "coluna_rotulo": "Label",
+        "nome": "E-mails em Ingles (CEAS_08)",
+        "arquivo_entrada": "database/eval_email_ingles_100.csv", 
+        "arquivo_saida": "evaluate/eval_local_output_email_en.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
+        "rotulo_positivo": "phishing",
+        "rotulo_negativo": "safe",
+        "max_rows": 100
+    },
+    {
+        "nome": "SMS em Ingles (Mendeley Data)",
+        "arquivo_entrada": "database/eval_sms_ingles_100.csv", 
+        "arquivo_saida": "evaluate/eval_local_output_sms_en.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
         "rotulo_positivo": "spam",
         "rotulo_negativo": "ham",
         "max_rows": 100
     },
     {
-        "nome": "Email Dataset",
-        "arquivo_entrada": "email_dataset.csv", 
-        "arquivo_saida": "email_ollama_output.csv", 
-        "coluna_texto": "Email Text",
-        "coluna_rotulo": "Email Type",
-        "rotulo_positivo": "Phishing Email",
-        "rotulo_negativo": "Safe Email",
+        "nome": "Mensagens em Portugues (SBSeg 2023 - UFC)",
+        "arquivo_entrada": "database/eval_sms_pt_br_100.csv", 
+        "arquivo_saida": "evaluate/eval_local_output_sms_pt.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
+        "rotulo_positivo": "golpe",
+        "rotulo_negativo": "legitimo",
         "max_rows": 100
     }
 ]
@@ -75,6 +85,21 @@ def process_dataset_ollama(config):
     positive_norm = config['rotulo_positivo'].lower()
     negative_norm = config['rotulo_negativo'].lower()
     max_rows = config.get('max_rows', 100)
+
+    if not os.path.exists('evaluate'):
+        os.makedirs('evaluate')
+
+    # Resolve caminhos relativos de forma flexivel
+    if not os.path.exists(filename_in):
+        for alt in [
+            os.path.join("database", os.path.basename(filename_in)),
+            os.path.join("..", filename_in),
+            os.path.join("..", "database", os.path.basename(filename_in)),
+            os.path.basename(filename_in)
+        ]:
+            if os.path.exists(alt):
+                filename_in = alt
+                break
 
     print(f"\n--- Processando: {config['nome']} | Modelo: {MODELO_OLLAMA} ---")
 

@@ -10,6 +10,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 MAX_ROWS_PER_DATASET = 5000
 
 DATASETS = [
+    "database/cleaned_email_ingles.csv",
+    "database/cleaned_sms_ingles.csv",
+    "database/cleaned_sms_pt_br.csv",
     "database/email_dataset.csv",
     "database/sms_dataset.csv"
 ]

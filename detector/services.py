@@ -55,7 +55,13 @@ try:
         print("ChromaDB vazio. Populando com 100 linhas de cada dataset...")
         try:
             import pandas as pd
-            datasets = ["database/email_dataset.csv", "database/sms_dataset.csv"]
+            datasets = [
+                "database/cleaned_email_ingles.csv",
+                "database/cleaned_sms_ingles.csv",
+                "database/cleaned_sms_pt_br.csv",
+                "database/email_dataset.csv",
+                "database/sms_dataset.csv"
+            ]
             text_cols = ["text", "message", "Email Text", "Message"]
             label_cols = ["label", "Label", "Email Type"]
             all_docs = []
