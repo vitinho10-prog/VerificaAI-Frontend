@@ -3,6 +3,8 @@ import time
 import os
 import csv
 import json
+import re
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, f1_score
@@ -15,12 +17,38 @@ from ollama import Client
 load_dotenv()
 
 OLLAMA_API_KEY = os.getenv("OLLAMA_CLOUD_API_KEY") or os.getenv("OLLAMA_API_KEY")
+SAFE_BROWSING_API_KEY = os.getenv("SAFE_BROWSING_API_KEY", "")
 
 if not OLLAMA_API_KEY:
     raise RuntimeError("API Key não encontrada no arquivo .env")
 
 MODELO_OLLAMA = "deepseek-v3.2:cloud" 
 ARQUIVO_RELATORIO_FINAL = "relatorio_metrics_ollama_cloud_deepseek-v3.2.txt"
+
+
+def verificar_link_com_safe_browsing(link: str) -> str:
+    """Verifica URL via Google Safe Browsing API v5."""
+    if not SAFE_BROWSING_API_KEY:
+        return "INDETERMINADO (Safe Browsing API Key ausente)"
+
+    url_api = "https://safebrowsing.googleapis.com/v5alpha1/urls:search"
+    params = {
+        'urls': link,
+        'key': SAFE_BROWSING_API_KEY
+    }
+    try:
+        response = requests.get(url_api, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        if 'threats' in data and data['threats']:
+            threat_entry = data['threats'][0]
+            threat_types = threat_entry.get('threatTypes', [])
+            types_str = ", ".join(threat_types) if threat_types else "MALICIOUS"
+            return f"PERIGOSO (Threat detected: {types_str})"
+        return "SEGURO"
+    except requests.exceptions.RequestException:
+        return "INDETERMINADO (Verification failed)"
+
 
 # Conexão via Client conforme funcionou anteriormente
 client = Client(
@@ -64,29 +92,39 @@ PROMPT_SISTEMA_BASE = """
 
 DATASETS_PARA_TESTAR = [
     {
-        "nome": "SMS Dataset",
-        "arquivo_entrada": "sms_dataset.csv", 
-        "arquivo_saida": "sms_evaluation_output.csv", 
-        "coluna_texto": "Message",
-        "coluna_rotulo": "Label",
+        "nome": "E-mails em Ingles (CEAS_08)",
+        "arquivo_entrada": "database/eval_email_ingles_100.csv", 
+        "arquivo_saida": "evaluate/eval_output_email_en.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
+        "rotulo_positivo": "phishing",
+        "rotulo_negativo": "safe",
+        "max_rows": 100
+    },
+    {
+        "nome": "SMS em Ingles (Mendeley Data)",
+        "arquivo_entrada": "database/eval_sms_ingles_100.csv", 
+        "arquivo_saida": "evaluate/eval_output_sms_en.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
         "rotulo_positivo": "spam",
         "rotulo_negativo": "ham",
         "max_rows": 100
     },
     {
-        "nome": "Email Dataset",
-        "arquivo_entrada": "email_dataset.csv", 
-        "arquivo_saida": "email_evaluation_output.csv", 
-        "coluna_texto": "Email Text",
-        "coluna_rotulo": "Email Type",
-        "rotulo_positivo": "Phishing Email",
-        "rotulo_negativo": "Safe Email",
+        "nome": "Mensagens em Portugues (SBSeg 2023 - UFC)",
+        "arquivo_entrada": "database/eval_sms_pt_br_100.csv", 
+        "arquivo_saida": "evaluate/eval_output_sms_pt.csv", 
+        "coluna_texto": "text",
+        "coluna_rotulo": "label_eval",
+        "rotulo_positivo": "golpe",
+        "rotulo_negativo": "legitimo",
         "max_rows": 100
     }
 ]
 
 # =====================================================
-# FUNÇÕES SOLICITADAS
+# FUNCOES SOLICITADAS
 # =====================================================
 
 def map_risk_to_label(risk_level, positive_label, negative_label):
@@ -107,6 +145,18 @@ def process_dataset_ollama(config):
     if not os.path.exists('evaluate'):
         os.makedirs('evaluate')
 
+    # Resolve caminhos relativos de forma flexivel
+    if not os.path.exists(filename_in):
+        for alt in [
+            os.path.join("database", os.path.basename(filename_in)),
+            os.path.join("..", filename_in),
+            os.path.join("..", "database", os.path.basename(filename_in)),
+            os.path.basename(filename_in)
+        ]:
+            if os.path.exists(alt):
+                filename_in = alt
+                break
+
     print(f"\n--- Processando: {config['nome']} | Modelo: {MODELO_OLLAMA} ---")
 
     skip_count = 0
@@ -122,7 +172,7 @@ def process_dataset_ollama(config):
         df = pd.read_csv(filename_in, nrows=max_rows)
         total_samples = len(df)
     except Exception as e:
-        print(f"Erro ao ler arquivo de entrada: {e}")
+        print(f"Erro ao ler arquivo de entrada ({filename_in}): {e}")
         return False
 
     file_exists = os.path.isfile(filename_out)
@@ -138,10 +188,16 @@ def process_dataset_ollama(config):
             texto = str(row[text_column])
             rotulo_verdadeiro = str(row[label_column]).lower()
             
+            # Análise de links via Safe Browsing v5
+            links_encontrados = re.findall(r'(https?://\S+)', texto)
+            resultado_safe_browsing = "Nenhum link na mensagem."
+            if links_encontrados:
+                resultado_safe_browsing = verificar_link_com_safe_browsing(links_encontrados[0])
+
             prompt_final = f"""
             <CONTEXT>
             <USER_MESSAGE>{texto}</USER_MESSAGE>
-            <TECHNICAL_LINK_ANALYSIS_RESULT>SEGURO</TECHNICAL_LINK_ANALYSIS_RESULT>
+            <TECHNICAL_LINK_ANALYSIS_RESULT>{resultado_safe_browsing}</TECHNICAL_LINK_ANALYSIS_RESULT>
             <HISTORICAL_SIMILAR_EXAMPLES>Nenhum exemplo histórico fornecido para este teste.</HISTORICAL_SIMILAR_EXAMPLES>
             </CONTEXT>
             """
